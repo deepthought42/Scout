@@ -11,6 +11,24 @@ Adafruit_LSM303_Mag_Unified   mag   = Adafruit_LSM303_Mag_Unified(30302);
 Adafruit_BMP085_Unified       bmp   = Adafruit_BMP085_Unified(18001);
 Adafruit_L3GD20_Unified       gyro  = Adafruit_L3GD20_Unified(20);
 
+double last_x = 0.0;
+double last_y = 0.0;
+double last_z = 0.0;
+double last_velocity_x = 0.0;
+double last_velocity_y = 0.0;
+double last_velocity_z = 0.0;
+
+double accel_x = 0.0;
+double accel_y = 0.0;
+double accel_z = 0.0;
+
+double gyro_x = 0.0;
+double gyro_y = 0.0;
+double gyro_z = 0.0;
+
+double z_offset = 0.0;
+double z_offset_gyro = 0.0;
+
 void displaySensorDetails(void)
 {
   sensor_t sensor;
@@ -58,8 +76,6 @@ void displaySensorDetails(void)
   Serial.print  (F("Resolution:   ")); Serial.print(sensor.resolution); Serial.println(F(" hPa"));  
   Serial.println(F("------------------------------------"));
   Serial.println(F(""));
-  
-  delay(500);
 }
 
 void setup(void)
@@ -92,24 +108,85 @@ void setup(void)
     Serial.print("Ooops, no L3GD20 detected ... Check your wiring or I2C ADDR!");
     while(1);
   }
+
+  sensors_event_t event;
+   
+  /* Display the results (acceleration is measured in m/s^2) */
+  accel.getEvent(&event);
   
+  z_offset = event.acceleration.z;
+  Serial.print("Z OFFSET ACCELEROMETER: ");
+  Serial.println(z_offset);
+
+  gyro.getEvent(&event);
+  z_offset_gyro = event.gyro.z;
+  Serial.print("Z OFFSET GYRO : ");
+  Serial.println(z_offset_gyro);
   /* Display some basic information on this sensor */
   displaySensorDetails();
 }
 
+
 void loop(void)
 {
-  print_current_time_with_ms();
+  unsigned long starttime;
+  unsigned long endTime;
+  
+  starttime = millis();
+  
   /* Get a new sensor event */
   sensors_event_t event;
    
   /* Display the results (acceleration is measured in m/s^2) */
   accel.getEvent(&event);
-  Serial.print(F("ACCEL "));
-  Serial.print("X: "); Serial.print(event.acceleration.x); Serial.print("  ");
-  Serial.print("Y: "); Serial.print(event.acceleration.y); Serial.print("  ");
-  Serial.print("Z: "); Serial.print(event.acceleration.z); Serial.print("  ");Serial.println("m/s^2 ");
 
+  if( (((accel_x + (event.acceleration.x))/2 - accel_x)/accel_x) > .15){
+    accel_x = (event.acceleration.x +1.8)/2;
+  }
+  else{
+    accel_x = 0.0;
+  }
+  
+  if((((accel_y + event.acceleration.y)/2 - accel_y)/accel_y) > .15){
+    accel_y = (event.acceleration.y+0.45)/2;
+  }
+  else{
+    accel_y = 0.0;
+  }
+
+  if(((((event.acceleration.z-z_offset)- accel_z)/4)/accel_z) > .15){
+    accel_z = (event.acceleration.z-z_offset)/2;
+  }
+  else{
+    accel_z = 0.0;
+  }
+
+  if( (((gyro_x + event.gyro.x)/2 - gyro_x)/gyro_x) > .1){
+    gyro_x = (event.gyro.x - .02)/2;
+  }
+  else{
+    gyro_x = 0.0;
+  }
+  
+  if((((gyro_y + event.gyro.y)/2 - gyro_y)/gyro_y) > .1){
+    gyro_y = (event.gyro.y - 0.03)/2;
+  }
+  else{
+    gyro_y = 0.0;
+  }
+
+  if((((event.gyro.z - gyro_z)/2)/gyro_z) > .1){
+    gyro_z = event.gyro.z-z_offset_gyro;
+  }
+  else{
+    gyro_z = 0.0;
+  }
+
+  Serial.print(F("ACCEL "));
+  Serial.print("X: "); Serial.print(accel_x); Serial.print("  ");
+  Serial.print("Y: "); Serial.print(accel_y); Serial.print("  ");
+  Serial.print("Z: "); Serial.print(accel_z); Serial.print("  ");Serial.println("m/s^2 ");
+  
   /* Display the results (magnetic vector values are in micro-Tesla (uT)) */
   mag.getEvent(&event);
   Serial.print(F("MAG   "));
@@ -120,10 +197,10 @@ void loop(void)
   /* Display the results (gyrocope values in rad/s) */
   gyro.getEvent(&event);
   Serial.print(F("GYRO  "));
-  Serial.print("X: "); Serial.print(event.gyro.x); Serial.print("  ");
-  Serial.print("Y: "); Serial.print(event.gyro.y); Serial.print("  ");
-  Serial.print("Z: "); Serial.print(event.gyro.z); Serial.print("  ");Serial.println("rad/s ");  
-
+  Serial.print("X: "); Serial.print(gyro_x); Serial.print("  ");
+  Serial.print("Y: "); Serial.print(gyro_y); Serial.print("  ");
+  Serial.print("Z: "); Serial.print(gyro_z); Serial.print("  ");Serial.println("rad/s ");  
+  
   /* Display the pressure sensor results (barometric pressure is measure in hPa) */
   bmp.getEvent(&event);
   if (event.pressure)
@@ -145,11 +222,85 @@ void loop(void)
                                         temperature)); 
     Serial.println(F(" m"));
   }
+
+  endTime = millis();
+  long delta_time = abs(endTime-starttime);
+
+  Serial.print("DELTA TIME : "); Serial.println(delta_time);
+ 
+  /* Display the results (cooridnate values ) */
+  double velocity = 0.0;
   
+  last_x = getNewCoordVal(convertInchesToMeters(5.0), last_x, last_velocity_x, accel_x, gyro_x, delta_time);
+  last_y = getNewCoordVal(convertInchesToMeters(2.0), last_y, last_velocity_y, accel_y, gyro_y, delta_time);
+  last_z = getNewCoordVal(convertInchesToMeters(4.625), last_z, last_velocity_z, accel_z, gyro_z, delta_time);
+  
+  last_velocity_x = last_velocity_x + (accel_x*(delta_time/1000));
+  last_velocity_y = last_velocity_y + (accel_y*(delta_time/1000));
+  last_velocity_z = last_velocity_z + (accel_z*(delta_time/1000));
+
+  
+  if(last_velocity_x < 0.0){
+    last_velocity_x = 0.0;
+  }
+  if(last_velocity_y < 0.0){
+    last_velocity_y < 0.0;
+  }
+  if(last_velocity_z < 0.0){
+    last_velocity_z < 0.0;
+  }
+  
+  Serial.print(F("COORDINATES  "));
+  Serial.print("X: "); Serial.print(last_x); Serial.print("  ");
+  Serial.print("Y: "); Serial.print(last_y); Serial.print("  ");
+  Serial.print("Z: "); Serial.print(last_z); Serial.println("  "); 
+
   Serial.println(F(""));
-  //delay(1000);
+  delay(50);
 }
 
+/**
+ * 
+ */
+double getNewCoordVal(double radius, double x, double velocity, double accel, double radsPerSec, long delta_time){
+  double rad = getRotationalDistance(radius, radsPerSec, delta_time);
+  double dist = getTraveledDistance(velocity, accel, delta_time);
+
+  return x + dist;
+}
+
+/**
+ * Gets Rotational distance based on rotational velocity and time passed
+ * @param radius - radius of arc from rotational edge
+ * @param radPerSec - angular velocity in radians/sec
+ * @param delta_time - time duration in milliseconds
+ */
+double getRotationalDistance(double radius, double radsPerSec, long delta_time){
+  return radius * (radsPerSec/1000) * delta_time;
+}
+
+/**
+ * Gets distrance traveled based on velocity, acceration and how much time has passed in milliseconds
+ * @param velocity - velocity in m/s
+ * @param accel - accelration in meters/s^2
+ * @param delta_time - time duration in milliseconds
+ */
+double getTraveledDistance(double velocity, double accel, long delta_time){
+  double v_f = velocity + accel*delta_time;
+  double distance = (((velocity+v_f)/1000)*delta_time)/2;
+  return distance;
+}
+
+/**
+ * Converts inches to meters
+ */
+double convertInchesToMeters(double inches){
+  return inches * 0.0254;
+}
+
+/**
+ * 
+ */
 void print_current_time_with_ms (void)
 {
   unsigned long time;
